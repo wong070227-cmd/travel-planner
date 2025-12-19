@@ -5,7 +5,7 @@ def generate_date_display(date_str):
     """Convert YYYY-MM-DD to readable format"""
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-        return date_obj.strftime("%B %d, %Y (%A)")
+        return date_obj.strftime("%B %d, %Y (%A)") #%B = Month name,%d = month of the day, %Y=Year, %Weekday name
     except:
         return date_str
 

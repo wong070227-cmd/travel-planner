@@ -134,12 +134,16 @@ class StorageManager:
                 return t
         return None
 
-    def add_trip(self, trip, overwrite=False):
-        existing = self.get_trip(trip.name)
-        if existing and not overwrite:
-            raise ValueError("Trip already exists")
-        if existing:
-            self._trips.remove(existing)
+    def add_trip(self, trip, overwrite=False, allow_duplicate=False):
+        if overwrite:
+            # Remove any existing trip(s) with the same name
+            self._trips = [t for t in self._trips if t.name != trip.name]
+        elif not allow_duplicate:
+            # Only block if duplicates not allowed
+            existing = self.get_trip(trip.name)
+            if existing:
+                raise ValueError("Trip already exists")
+        # Add trip
         self._trips.append(trip)
         self.auto_save()
 

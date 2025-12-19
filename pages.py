@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk, scrolledtext
 from datetime import datetime, timedelta
 from models import Trip, Accommodation, Activity
+from tkinter import messagebox, simpledialog
 from helpers import generate_date_display, get_dates_in_range
 
 # BASE PAGE
@@ -158,9 +159,8 @@ class AddTripPage(BasePage):
     def _on_trip_select(self, event):
         sel = self._listbox.curselection()
         if sel:
-            # Extract trip name from the displayed text (first part before " | ")
             display_text = self._listbox.get(sel[0])
-            trip_name = display_text.split(" | ")[0]  # Get trip name from display
+            trip_name = display_text.split(" | ")[0]
             self._enable_edit_mode(trip_name)
 
     def _enable_edit_mode(self, trip_name):
@@ -169,7 +169,6 @@ class AddTripPage(BasePage):
         self._save_button.config(state=tk.DISABLED)
         self._update_button.config(state=tk.NORMAL)
         
-        # Load trip data into form
         trip = self.storage.get_trip(trip_name)
         if trip:
             self._trip_name.delete(0, tk.END)
@@ -204,11 +203,11 @@ class AddTripPage(BasePage):
         style = self._style.get()
         start = self._start.get().strip()
         end = self._end.get().strip()
-        
+
         if not name or not dest or not start or not end:
             messagebox.showerror("Error", "Please fill required fields")
             return
-        
+
         try:
             s = datetime.strptime(start, "%Y-%m-%d")
             e = datetime.strptime(end, "%Y-%m-%d")
@@ -219,50 +218,91 @@ class AddTripPage(BasePage):
         except ValueError:
             messagebox.showerror("Error", "Invalid date format. Use YYYY-MM-DD")
             return
-        
-        trip = Trip(name=name, destination=dest, travel_style=style, 
-                   start=start, end=end, duration=duration,
-                   created=datetime.now().strftime("%Y-%m-%d %H:%M"))
-        
-        try:
-            existing = self.storage.get_trip(name)
-            if existing:
-                if not messagebox.askyesno("Duplicate", f"Trip '{name}' already exists. Overwrite?"):
-                    return
+
+        trip = Trip(
+            name=name,
+            destination=dest,
+            travel_style=style,
+            start=start,
+            end=end,
+            duration=duration,
+            created=datetime.now().strftime("%Y-%m-%d %H:%M")
+        )
+
+        existing = self.storage.get_trip(name)
+        if existing:
+            overwrite = messagebox.askyesno(
+                "Duplicate Trip Name",
+                f"Trip '{name}' already exists.\n\nDo you want to overwrite it?"
+            )
+            if overwrite:
+                # YES → overwrite existing
                 self.storage.add_trip(trip, overwrite=True)
                 action = "updated"
             else:
-                self.storage.add_trip(trip)
-                action = "saved"
-            
-            # Create detailed success message
-            start_display = generate_date_display(start)
-            end_display = generate_date_display(end)
-            
-            success_message = f"""
-✅ Trip {action} successfully!
+                # NO → ask rename
+                rename = messagebox.askyesno(
+                    "Rename Trip",
+                    "Do you want to rename the trip?"
+                )
+                if rename:
+                    # YES → let user rename
+                    self._trip_name.focus_set()
+                    self._trip_name.select_range(0, tk.END)
+                    return
+                else:
+                    # NO → Save as NEW trip with same name (duplicate allowed)
+                    # Generate a unique identifier or append timestamp to avoid storage conflicts
+                    import uuid
+                    original_name = trip.name
+                    # Keep original name for display but add unique ID internally if needed
+                    # OR: Append timestamp to make it unique
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    unique_name = f"{original_name}_{timestamp}"
+                    
+                    # Update trip name with unique identifier
+                    trip.name = unique_name
+                    
+                    self.storage.add_trip(trip)  # Save as new trip
+                    action = "saved (as new entry)"
+                    
+                    # Show warning about duplicate name
+                    messagebox.showwarning(
+                        "Duplicate Name", 
+                        f"Trip saved as '{unique_name}'.\n\n"
+                        f"Note: Another trip with name '{original_name}' already exists. "
+                        f"A timestamp has been added to make the name unique."
+                    )
+        else:
+            # No existing trip → save normally
+            self.storage.add_trip(trip)
+            action = "saved"
 
-📋 Trip Details:
-────────────────
-🏷️  Trip Name: {name}
-📍 Destination: {dest}
-🎭 Travel Style: {style}
-📅 Start Date: {start} ({start_display})
-📅 End Date: {end} ({end_display})
-⏱️  Duration: {duration} day(s)
-📅 Created: {trip.created}
-────────────────
+        start_display = generate_date_display(start)
+        end_display = generate_date_display(end)
+        
+        success_message = f"""
+    ✅ Trip {action} successfully!
 
-You can now add accommodations and activities for this trip!
-"""
-            
-            messagebox.showinfo("Success", success_message)
-            self.clear()
-            self._update_trip_list()
-            
-        except ValueError as ex:
-            messagebox.showerror("Error", str(ex))
+    📋 Trip Details:
+    ────────────────
+    🏷️  Trip Name: {trip.name}  # Now shows the unique name if duplicated
+    📍 Destination: {dest}
+    🎭 Travel Style: {style}
+    📅 Start Date: {start} ({start_display})
+    📅 End Date: {end} ({end_display})
+    ⏱️  Duration: {duration} day(s)
+    📅 Created: {trip.created}
+    ────────────────
 
+    You can now add accommodations and activities for this trip!
+    """
+        
+        messagebox.showinfo("Success", success_message)
+        self.clear()
+        self._update_trip_list()
+
+    # ========================== REST OF CLASS UNCHANGED ==========================
     def update_trip(self):
         if not self.edit_mode or not self.editing_trip_name:
             return
@@ -288,47 +328,22 @@ You can now add accommodations and activities for this trip!
             messagebox.showerror("Error", "Invalid date format. Use YYYY-MM-DD")
             return
         
-        # Create updated trip with current accommodations and activities
         old_trip = self.storage.get_trip(self.editing_trip_name)
         new_trip = Trip(name=name, destination=dest, travel_style=style, 
                        start=start, end=end, duration=duration,
                        created=old_trip.created if old_trip else datetime.now().strftime("%Y-%m-%d %H:%M"))
         
-        # Transfer existing accommodations and activities
         if old_trip:
             new_trip._accommodations = old_trip._accommodations
             new_trip._activities = old_trip._activities
         
         try:
             if self.storage.update_trip(self.editing_trip_name, new_trip):
-                # Create detailed success message
-                start_display = generate_date_display(start)
-                end_display = generate_date_display(end)
-                
-                success_message = f"""
-✅ Trip updated successfully!
-
-📋 Updated Trip Details:
-────────────────
-🏷️  Trip Name: {name}
-📍 Destination: {dest}
-🎭 Travel Style: {style}
-📅 Start Date: {start} ({start_display})
-📅 End Date: {end} ({end_display})
-⏱️  Duration: {duration} day(s)
-📅 Created: {new_trip.created}
-────────────────
-
-Accommodations: {len(new_trip._accommodations)}
-Activities: {len(new_trip._activities)}
-"""
-                
-                messagebox.showinfo("Success", success_message)
+                messagebox.showinfo("Success", f"Trip '{name}' updated successfully!")
                 self.clear()
                 self._update_trip_list()
             else:
                 messagebox.showerror("Error", "Failed to update trip")
-                
         except Exception as ex:
             messagebox.showerror("Error", str(ex))
 
@@ -337,8 +352,6 @@ Activities: {len(new_trip._activities)}
         if not sel:
             messagebox.showwarning("No Selection", "Please select a trip to edit")
             return
-        
-        # Extract trip name from display text
         display_text = self._listbox.get(sel[0])
         trip_name = display_text.split(" | ")[0]
         self._enable_edit_mode(trip_name)
@@ -348,11 +361,8 @@ Activities: {len(new_trip._activities)}
         if not sel:
             messagebox.showwarning("No Selection", "Please select a trip to delete")
             return
-        
-        # Extract trip name from display text
         display_text = self._listbox.get(sel[0])
         trip_name = display_text.split(" | ")[0]
-        
         if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete trip '{trip_name}'?"):
             self.storage.remove_trip(trip_name)
             self._update_trip_list()
@@ -362,7 +372,6 @@ Activities: {len(new_trip._activities)}
     def _update_trip_list(self):
         self._listbox.delete(0, tk.END)
         for trip in self.storage.list_trips():
-            # Create detailed display text for each trip
             display_text = f"{trip.name} | {trip.destination} | {trip.travel_style} | {trip.start}→{trip.end} | {trip.duration}d"
             self._listbox.insert(tk.END, display_text)
 
@@ -450,7 +459,7 @@ class AddAccommodationPage(BasePage):
         self._save_button.pack(side="left", padx=5)
         
         self._update_button = tk.Button(action_frame, text="✏️ Update Accommodation", bg="#64de7c", fg="white",
-                                       font=("Arial", 10), command=self.update, state=tk.DISABLED)
+                                       font=("Arial", 10), command=self.update, state=tk.NORMAL)
         self._update_button.pack(side="left", padx=5)
         
         self._clear_button = tk.Button(action_frame, text="🗑️ Clear Form", bg="#d9534f", fg="white",
@@ -881,7 +890,7 @@ class AddActivitiesPage(BasePage):
         self._save_button.pack(side="left", padx=5)
         
         self._update_button = tk.Button(action_frame, text="✏️ Update Activity", bg="#64de7c", fg="white",
-                                       font=("Arial", 10), command=self.update, state=tk.DISABLED)
+                                       font=("Arial", 10), command=self.update, state=tk.NORMAL)
         self._update_button.pack(side="left", padx=5)
         
         self._clear_button = tk.Button(action_frame, text="🗑️ Clear Form", bg="#d9534f", fg="white",
